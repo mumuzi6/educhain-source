@@ -50,6 +50,11 @@ public class TeamUserVO implements Serializable {
     private Integer status;
 
     /**
+     * 封面图片URL
+     */
+    private String coverUrl;
+
+    /**
      * 创建时间
      */
     private Date createTime;

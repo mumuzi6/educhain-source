@@ -54,6 +54,11 @@ public class Team implements Serializable {
     private String password;
 
     /**
+     * 封面图片URL
+     */
+    private String coverUrl;
+
+    /**
      * 创建时间
      */
     private Date createTime;

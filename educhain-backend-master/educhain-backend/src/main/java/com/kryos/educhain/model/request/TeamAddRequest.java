@@ -48,4 +48,9 @@ public class TeamAddRequest implements Serializable {
      * 密码
      */
     private String password;
+    
+    /**
+     * 封面图片URL
+     */
+    private String coverUrl;
 }

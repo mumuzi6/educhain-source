@@ -18,6 +18,22 @@
             placeholder="请输入队伍描述"
         />
         <van-field
+            v-model="addTeamData.coverUrl"
+            name="coverUrl"
+            label="封面图片"
+            placeholder="请输入封面图片URL"
+        >
+          <template #extra v-if="addTeamData.coverUrl">
+            <van-image
+              width="50"
+              height="50"
+              :src="addTeamData.coverUrl"
+              @click.stop="previewImage"
+              :error="defaultErrorImage"
+            />
+          </template>
+        </van-field>
+        <van-field
             is-link
             readonly
             name="datetimePicker"
@@ -64,6 +80,7 @@
         </van-button>
       </div>
     </van-form>
+    <van-image-preview v-model:show="showImagePreview" :images="[addTeamData.coverUrl]" />
   </div>
 </template>
 
@@ -77,6 +94,10 @@ import {Toast} from "vant";
 const router = useRouter();
 // 展示日期选择器
 const showPicker = ref(false);
+// 图片预览
+const showImagePreview = ref(false);
+// 默认错误图片
+const defaultErrorImage = 'https://fastly.jsdelivr.net/npm/@vant/assets/empty-image-default.png';
 
 const initFormData = {
   "name": "",
@@ -85,6 +106,7 @@ const initFormData = {
   "maxNum": 3,
   "password": "",
   "status": 0,
+  "coverUrl": "", // 添加封面URL字段
 }
 
 const minDate = new Date();
@@ -92,22 +114,34 @@ const minDate = new Date();
 // 需要用户填写的表单数据
 const addTeamData = ref({...initFormData})
 
+// 预览图片
+const previewImage = () => {
+  if (addTeamData.value.coverUrl) {
+    showImagePreview.value = true;
+  }
+}
+
 // 提交
 const onSubmit = async () => {
   const postData = {
     ...addTeamData.value,
     status: Number(addTeamData.value.status)
   }
-  // todo 前端参数校验
-  const res = await myAxios.post("/team/add", postData);
-  if (res?.code === 0 && res.data){
-    Toast.success('添加成功');
-    router.push({
-      path: '/team',
-      replace: true,
-    });
-  } else {
-    Toast.success('添加失败');
+  try {
+    // 使用类型断言处理响应数据
+    const res = await myAxios.post("/team/add", postData) as any;
+    if (res?.code === 0 && res.data){
+      Toast.success('添加成功');
+      router.push({
+        path: '/team',
+        replace: true,
+      });
+    } else {
+      Toast.fail('添加失败');
+    }
+  } catch (error) {
+    console.error('添加队伍失败', error);
+    Toast.fail('添加失败');
   }
 }
 </script>

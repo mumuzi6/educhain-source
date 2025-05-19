@@ -32,27 +32,31 @@ const teamList = ref([]);
  * @param val
  * @returns {Promise<void>}
  */
-const listTeam = async (val = '') => {
-  const res = await myAxios.get("/team/list/my/create", {
-    params: {
-      searchText: val,
-      pageNum: 1,
-    },
-  });
-  if (res?.code === 0) {
-    teamList.value = res.data;
-  } else {
+const listTeam = async (val: string = '') => {
+  try {
+    const res = await myAxios.get("/team/list/my/create", {
+      params: {
+        searchText: val,
+        pageNum: 1,
+      },
+    }) as any;
+    if (res?.code === 0) {
+      teamList.value = res.data;
+    } else {
+      Toast.fail('加载队伍失败，请刷新重试');
+    }
+  } catch (error) {
+    console.error('加载队伍失败', error);
     Toast.fail('加载队伍失败，请刷新重试');
   }
 }
-
 
 // 页面加载时只触发一次
 onMounted( () => {
   listTeam();
 })
 
-const onSearch = (val) => {
+const onSearch = (val: string) => {
   listTeam(val);
 };
 

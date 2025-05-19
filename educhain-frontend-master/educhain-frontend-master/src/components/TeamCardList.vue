@@ -4,7 +4,7 @@
   >
     <van-card
         v-for="team in props.teamList"
-        :thumb="ikun"
+        :thumb="team.coverUrl || teamDefaultImage"
         :desc="team.description"
         :title="`${team.name}`"
     >
@@ -17,13 +17,13 @@
       </template>
       <template #bottom>
         <div>
-          {{ `队伍人数: ${team.hasJoinNum}/${team.maxNum}` }}
+          {{ `队伍人数: ${team.hasJoinNum || 0}/${team.maxNum}` }}
         </div>
         <div v-if="team.expireTime">
-          {{ '过期时间: ' + team.expireTime }}
+          {{ '过期时间: ' + formatDate(team.expireTime, 'YYYY年MM月DD日 HH:mm') }}
         </div>
         <div>
-          {{ '创建时间: ' + team.createTime }}
+          {{ '创建时间: ' + formatDate(team.createTime, 'YYYY年MM月DD日 HH:mm') }}
         </div>
       </template>
       <template #footer>
@@ -59,6 +59,7 @@ import {Dialog, Toast} from "vant";
 import {onMounted, ref} from "vue";
 import {getCurrentUser} from "../services/user";
 import {useRouter} from "vue-router";
+import {formatDate} from "../utils/timeUtils";
 
 interface TeamCardListProps {
   teamList: TeamType[];
@@ -75,6 +76,9 @@ const joinTeamId = ref(0);
 const currentUser = ref();
 
 const router = useRouter();
+
+
+const teamDefaultImage = ikun;
 
 onMounted(async () => {
   currentUser.value = await getCurrentUser();
@@ -101,15 +105,20 @@ const doJoinTeam = async () => {
   if (!joinTeamId.value) {
     return;
   }
-  const res = await myAxios.post('/team/join', {
-    teamId: joinTeamId.value,
-    password: password.value
-  });
-  if (res?.code === 0) {
-    Toast.success('加入成功');
-    doJoinCancel();
-  } else {
-    Toast.fail('加入失败' + (res.description ? `，${res.description}` : ''));
+  try {
+    const res = await myAxios.post('/team/join', {
+      teamId: joinTeamId.value,
+      password: password.value
+    }) as any;
+    if (res?.code === 0) {
+      Toast.success('加入成功');
+      doJoinCancel();
+    } else {
+      Toast.fail('加入失败' + (res.description ? `，${res.description}` : ''));
+    }
+  } catch (error) {
+    console.error('加入队伍失败', error);
+    Toast.fail('加入失败');
   }
 }
 
@@ -131,13 +140,18 @@ const doUpdateTeam = (id: number) => {
  * @param id
  */
 const doQuitTeam = async (id: number) => {
-  const res = await myAxios.post('/team/quit', {
-    teamId: id
-  });
-  if (res?.code === 0) {
-    Toast.success('操作成功');
-  } else {
-    Toast.fail('操作失败' + (res.description ? `，${res.description}` : ''));
+  try {
+    const res = await myAxios.post('/team/quit', {
+      teamId: id
+    }) as any;
+    if (res?.code === 0) {
+      Toast.success('操作成功');
+    } else {
+      Toast.fail('操作失败' + (res.description ? `，${res.description}` : ''));
+    }
+  } catch (error) {
+    console.error('退出队伍失败', error);
+    Toast.fail('操作失败');
   }
 }
 
@@ -146,13 +160,18 @@ const doQuitTeam = async (id: number) => {
  * @param id
  */
 const doDeleteTeam = async (id: number) => {
-  const res = await myAxios.post('/team/delete', {
-    id,
-  });
-  if (res?.code === 0) {
-    Toast.success('操作成功');
-  } else {
-    Toast.fail('操作失败' + (res.description ? `，${res.description}` : ''));
+  try {
+    const res = await myAxios.post('/team/delete', {
+      id,
+    }) as any;
+    if (res?.code === 0) {
+      Toast.success('操作成功');
+    } else {
+      Toast.fail('操作失败' + (res.description ? `，${res.description}` : ''));
+    }
+  } catch (error) {
+    console.error('解散队伍失败', error);
+    Toast.fail('操作失败');
   }
 }
 

@@ -184,6 +184,19 @@ public class TeamController {
         User loginUser = userService.getLoginUser(request);
         teamQuery.setUserId(loginUser.getId());
         List<TeamUserVO> teamList = teamService.listTeams(teamQuery, true);
+        
+        // 查询已加入队伍的人数
+        for (TeamUserVO teamUserVO : teamList) {
+            Long teamId = teamUserVO.getId();
+            QueryWrapper<UserTeam> userTeamJoinQueryWrapper = new QueryWrapper<>();
+            userTeamJoinQueryWrapper.eq("teamId", teamId);
+            int hasJoinNum = (int) userTeamService.count(userTeamJoinQueryWrapper);
+            teamUserVO.setHasJoinNum(hasJoinNum);
+            
+            // 创建者默认也是队伍成员
+            teamUserVO.setHasJoin(true);
+        }
+        
         return ResultUtils.success(teamList);
     }
 
@@ -201,6 +214,8 @@ public class TeamController {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
         User loginUser = userService.getLoginUser(request);
+        Long userId = loginUser.getId();
+        
         QueryWrapper<UserTeam> queryWrapper = new QueryWrapper<>();
         queryWrapper.eq("userId", loginUser.getId());
         List<UserTeam> userTeamList = userTeamService.list(queryWrapper);
@@ -215,8 +230,38 @@ public class TeamController {
         Map<Long, List<UserTeam>> listMap = userTeamList.stream()
                 .collect(Collectors.groupingBy(UserTeam::getTeamId));
         List<Long> idList = new ArrayList<>(listMap.keySet());
+        
+        // 如果没有加入任何队伍，直接返回空列表
+        if (idList.isEmpty()) {
+            return ResultUtils.success(new ArrayList<>());
+        }
+        
+        // 修改：设置status为null，确保不会按状态过滤队伍
         teamQuery.setIdList(idList);
+        teamQuery.setStatus(null);
+        
+        // 这里传入isAdmin=true，确保所有状态的队伍都会被返回，包括私有队伍
         List<TeamUserVO> teamList = teamService.listTeams(teamQuery, true);
+        
+        // 关键修改：过滤掉用户自己创建的队伍
+        teamList = teamList.stream()
+                .filter(team -> !userId.equals(team.getUserId()))
+                .collect(Collectors.toList());
+        
+        // 设置当前用户已加入这些队伍
+        for (TeamUserVO teamUserVO : teamList) {
+            teamUserVO.setHasJoin(true);
+        }
+        
+        // 查询已加入队伍的人数
+        for (TeamUserVO teamUserVO : teamList) {
+            Long teamId = teamUserVO.getId();
+            QueryWrapper<UserTeam> userTeamJoinQueryWrapper = new QueryWrapper<>();
+            userTeamJoinQueryWrapper.eq("teamId", teamId);
+            int hasJoinNum = (int) userTeamService.count(userTeamJoinQueryWrapper);
+            teamUserVO.setHasJoinNum(hasJoinNum);
+        }
+        
         return ResultUtils.success(teamList);
     }
 }
