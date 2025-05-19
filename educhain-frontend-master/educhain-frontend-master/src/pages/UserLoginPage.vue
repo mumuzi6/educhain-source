@@ -8,8 +8,7 @@
           placeholder="请输入账号"
           :rules="[
             { required: true, message: '请填写用户名' },
-            { min: 4, message: '用户名至少4个字符' },
-            { pattern: /^[a-zA-Z0-9_]+$/, message: '用户名不能包含特殊字符' }
+            { pattern: /^[a-zA-Z0-9_]{4,}$/, message: '用户名至少4个字符，且不能包含特殊字符' }
           ]"
       />
       <van-field
@@ -20,7 +19,7 @@
           placeholder="请输入密码"
           :rules="[
             { required: true, message: '请填写密码' },
-            { min: 8, message: '密码至少8个字符' }
+            { pattern: /.{8,}/, message: '密码至少8个字符' }
           ]"
       />
     </van-cell-group>
@@ -28,6 +27,9 @@
       <van-button round block type="primary" native-type="submit">
         提交
       </van-button>
+    </div>
+    <div style="margin: 16px; text-align: center;">
+      <router-link to="/user/register">没有账号? 点击注册</router-link>
     </div>
   </van-form>
 </template>
@@ -37,6 +39,8 @@ import {useRoute, useRouter} from "vue-router";
 import {ref} from "vue";
 import myAxios from "../plugins/myAxios";
 import {Toast} from "vant";
+import BaseResponse from "../models/baseResponse";
+import {User} from "../models/user";
 
 const router = useRouter();
 const route = useRoute();
@@ -52,21 +56,21 @@ const onSubmit = async () => {
       userPassword: userPassword.value
     });
     
-    const res = await myAxios.post('/user/login', {
+    const res = await myAxios.post<any, BaseResponse<User>>('/user/login', {
       userAccount: userAccount.value,
       userPassword: userPassword.value,
     })
     console.log(res, '用户登录');
     // 重要：必须同时检查code为0且data不为null
-    if (res.code === 0 && res.data) {
+    if (res?.code === 0 && res?.data) {
       Toast.success('登录成功');
       
       // 登录成功后，获取当前用户信息来验证session是否正常
       try {
         // 先等待一小段时间，确保session已经完全设置好
         await new Promise(resolve => setTimeout(resolve, 500));
-        const currentUserRes = await myAxios.get('/user/current');
-        if (currentUserRes.code === 0) {
+        const currentUserRes = await myAxios.get<any, BaseResponse<User>>('/user/current');
+        if (currentUserRes?.code === 0) {
           console.log('成功获取当前用户信息', currentUserRes);
           // 现在可以安全跳转了
           window.location.href = '/';

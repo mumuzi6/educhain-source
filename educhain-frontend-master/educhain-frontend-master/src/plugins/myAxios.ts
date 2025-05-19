@@ -1,4 +1,5 @@
 import axios, {AxiosInstance} from "axios";
+import BaseResponse from "../models/baseResponse";
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -30,7 +31,7 @@ myAxios.interceptors.response.use(function (response) {
         // 简化重定向策略，直接跳转到登录页面
         window.location.href = '/user/login';
     }
-    // Do something with response data
+    // 直接返回响应数据，而不是整个response对象
     return response.data;
 }, function (error) {
     // Do something with response error
