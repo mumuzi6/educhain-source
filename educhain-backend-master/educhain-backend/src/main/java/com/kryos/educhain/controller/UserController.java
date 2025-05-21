@@ -19,11 +19,15 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import java.util.Set;
 
 import static com.kryos.educhain.constant.UserConstant.USER_LOGIN_STATE;
+import com.kryos.educhain.job.PreCacheJob;
 
 /**
  * 用户接口
@@ -39,6 +43,9 @@ public class UserController {
 
     @Resource
     private RedisTemplate<String, Object> redisTemplate;
+
+    @Resource
+    private PreCacheJob preCacheJob;
 
     @PostMapping("/register")
     public BaseResponse<Long> userRegister(@RequestBody UserRegisterRequest userRegisterRequest) {
@@ -120,6 +127,64 @@ public class UserController {
         return ResultUtils.success(userList);
     }
 
+    /**
+     * 根据标签搜索用户（分页版，带缓存）
+     *
+     * @param tagNameList 标签列表
+     * @param pageSize 页面大小
+     * @param pageNum 当前页码
+     * @return 分页用户数据
+     */
+    @GetMapping("/search/tags/page")
+    public BaseResponse<Page<User>> searchUsersByTagsWithPagination(
+            @RequestParam(required = false) List<String> tagNameList,
+            @RequestParam(defaultValue = "10") long pageSize,
+            @RequestParam(defaultValue = "1") long pageNum) {
+        if (CollectionUtils.isEmpty(tagNameList)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        
+        // 对标签列表进行排序，确保相同的标签组合生成相同的缓存键
+        List<String> sortedTagList = new ArrayList<>(tagNameList);
+        Collections.sort(sortedTagList);
+        
+        // 构造Redis缓存键 - 包含标签列表、页码和页大小
+        String redisKey = String.format("educhain:user:tags:%s:page:%d:size:%d", 
+                String.join(",", sortedTagList), pageNum, pageSize);
+                
+        ValueOperations<String, Object> valueOperations = redisTemplate.opsForValue();
+        
+        // 尝试从缓存中获取分页结果
+        Page<User> userPage = (Page<User>) valueOperations.get(redisKey);
+        if (userPage != null) {
+            log.info("从缓存中获取标签 {} 的用户列表 (页码:{}, 每页大小:{})", 
+                    String.join(",", sortedTagList), pageNum, pageSize);
+            return ResultUtils.success(userPage);
+        }
+        
+        // 缓存未命中，从数据库查询并进行分页处理
+        log.info("从数据库获取标签 {} 的用户列表 (页码:{}, 每页大小:{})", 
+                String.join(",", sortedTagList), pageNum, pageSize);
+        
+        // 使用Service层的分页方法直接获取分页结果
+        userPage = userService.searchUsersByTagsWithPagination(tagNameList, pageSize, pageNum);
+        
+        // 写入缓存，设置过期时间为30分钟
+        try {
+            valueOperations.set(redisKey, userPage, 30, TimeUnit.MINUTES);
+            
+            // 生成缓存键模式，用于后续失效相关缓存
+            String redisKeyPattern = String.format("educhain:user:tags:%s:*", String.join(",", sortedTagList));
+            // 将键模式添加到一个集合中，方便管理
+            String cacheKeysSetKey = "educhain:cache:tagSearchKeys";
+            redisTemplate.opsForSet().add(cacheKeysSetKey, redisKeyPattern);
+        } catch (Exception e) {
+            log.error("Redis设置缓存失败", e);
+        }
+        
+        return ResultUtils.success(userPage);
+    }
+
     // todo 推荐多个，未实现，写到Service?
     @GetMapping("/recommend")
     public BaseResponse<Page<User>> recommendUsers(long pageSize, long pageNum, HttpServletRequest request) {
@@ -152,6 +217,29 @@ public class UserController {
         }
         User loginUser = userService.getLoginUser(request);
         int result = userService.updateUser(user, loginUser);
+        
+        // 更新用户后，清除相关的标签搜索缓存
+        if (result > 0 && user.getTags() != null) {
+            try {
+                // 清除所有标签搜索相关的缓存
+                String cacheKeysSetKey = "educhain:cache:tagSearchKeys";
+                Set<Object> keyPatterns = redisTemplate.opsForSet().members(cacheKeysSetKey);
+                if (keyPatterns != null && !keyPatterns.isEmpty()) {
+                    for (Object pattern : keyPatterns) {
+                        String patternStr = (String) pattern;
+                        // 找到所有匹配模式的键
+                        Set<String> keys = redisTemplate.keys(patternStr);
+                        if (keys != null && !keys.isEmpty()) {
+                            redisTemplate.delete(keys);
+                            log.info("已清除用户 {} 更新标签后相关的缓存: {}", loginUser.getId(), patternStr);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.error("清除标签搜索缓存失败", e);
+            }
+        }
+        
         return ResultUtils.success(result);
     }
 
@@ -181,6 +269,31 @@ public class UserController {
         }
         User user = userService.getLoginUser(request);
         return ResultUtils.success(userService.matchUsers(num, user));
+    }
+
+    /**
+     * 手动触发缓存预热（仅管理员可用）
+     */
+    @GetMapping("/admin/trigger-cache-preheat")
+    public BaseResponse<Boolean> triggerCachePreheat(HttpServletRequest request) {
+        if (!userService.isAdmin(request)) {
+            throw new BusinessException(ErrorCode.NO_AUTH);
+        }
+        
+        log.info("管理员手动触发缓存预热");
+        try {
+            // 在新线程中执行，避免阻塞响应
+            Thread preCacheThread = new Thread(() -> {
+                preCacheJob.manualTriggerCachePreheating();
+            });
+            preCacheThread.setName("manual-cache-preheat");
+            preCacheThread.start();
+            
+            return ResultUtils.success(true);
+        } catch (Exception e) {
+            log.error("手动触发缓存预热失败", e);
+            return ResultUtils.error(ErrorCode.SYSTEM_ERROR, "触发失败");
+        }
     }
 
 }

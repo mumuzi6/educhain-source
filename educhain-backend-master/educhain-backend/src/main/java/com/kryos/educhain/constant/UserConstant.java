@@ -10,6 +10,11 @@ public interface UserConstant {
      */
     String USER_LOGIN_STATE = "userLoginState";
 
+    /**
+     * 密码加密盐值
+     */
+    String SALT = "yupi";
+
     //  ------- 权限 --------
 
     /**

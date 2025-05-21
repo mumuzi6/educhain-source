@@ -4,6 +4,7 @@ import com.kryos.educhain.common.BaseResponse;
 import com.kryos.educhain.model.domain.User;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.kryos.educhain.model.vo.UserVO;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 
 import javax.servlet.http.HttpServletRequest;
 import java.util.List;
@@ -57,6 +58,16 @@ public interface UserService extends IService<User> {
      * @return
      */
     List<User> searchUsersByTags(List<String> tagNameList);
+
+    /**
+     * 根据标签搜索用户（分页版）
+     *
+     * @param tagNameList 标签列表
+     * @param pageSize 页面大小
+     * @param pageNum 当前页码
+     * @return 分页用户数据
+     */
+    Page<User> searchUsersByTagsWithPagination(List<String> tagNameList, long pageSize, long pageNum);
 
     /**
      * 更新用户信息

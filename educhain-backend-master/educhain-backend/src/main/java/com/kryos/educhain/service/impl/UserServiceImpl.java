@@ -1,9 +1,9 @@
 package com.kryos.educhain.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.google.gson.Gson;
-import com.google.gson.TypeAdapter;
 import com.google.gson.reflect.TypeToken;
 import com.kryos.educhain.common.ErrorCode;
 import com.kryos.educhain.constant.UserConstant;
@@ -15,7 +15,8 @@ import com.kryos.educhain.mapper.UserMapper;
 import com.kryos.educhain.utils.AlgorithmUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.math3.util.Pair;
+import org.apache.commons.lang3.tuple.Pair;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.DigestUtils;
@@ -23,11 +24,12 @@ import org.springframework.util.DigestUtils;
 import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
+import static com.kryos.educhain.constant.UserConstant.SALT;
 import static com.kryos.educhain.constant.UserConstant.USER_LOGIN_STATE;
 
 /**
@@ -40,11 +42,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
     @Resource
     private UserMapper userMapper;
-
-    /**
-     * 盐值，混淆密码
-     */
-    private static final String SALT = "yupi";
+    
+    @Resource
+    private RedisTemplate<String, Object> redisTemplate;
 
     @Override
     public long userRegister(String userAccount, String userPassword, String checkPassword, String planetCode) {
@@ -62,7 +62,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "星球编号过长");
         }
         // 账户不能包含特殊字符
-        String validPattern = "[`~!@#$%^&*()+=|{}':;',\\\\[\\\\].<>/?~！@#￥%……&*（）——+|{}【】‘；：”“’。，、？]";
+        String validPattern = "[`~!@#$%^&*()+=|{}':;',\\\\[\\\\].<>/?~！@#￥%……&*（）——+|{}【】'；：\"\"'。，、？]";
         Matcher matcher = Pattern.compile(validPattern).matcher(userAccount);
         if (matcher.find()) {
             return -1;
@@ -112,7 +112,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             return null;
         }
         // 账户不能包含特殊字符
-        String validPattern = "[`~!@#$%^&*()+=|{}':;',\\\\[\\\\].<>/?~！@#￥%……&*（）——+|{}【】‘；：”“’。，、？]";
+        String validPattern = "[`~!@#$%^&*()+=|{}':;',\\\\[\\\\].<>/?~！@#￥%……&*（）——+|{}【】'；：\"\"'。，、？]";
         Matcher matcher = Pattern.compile(validPattern).matcher(userAccount);
         if (matcher.find()) {
             return null;
@@ -176,7 +176,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     }
 
     /**
-     * 根据标签搜索用户（内存过滤）
+     * 根据标签搜索用户（SQL 查询版）
      *
      * @param tagNameList 用户要拥有的标签
      * @return
@@ -186,23 +186,145 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         if (CollectionUtils.isEmpty(tagNameList)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        // 1. 先查询所有用户
+        
+        // 先看是否有缓存
+        String cacheKey = String.format("user:tags:%s:all", 
+                String.join("_", tagNameList));
+        Object cachedResult = redisTemplate.opsForValue().get(cacheKey);
+        if (cachedResult != null) {
+            return (List<User>) cachedResult;
+        }
+        
+        // 没有缓存，查询数据库 - 使用SQL LIKE查询
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        // 只查询必要字段
+        queryWrapper.select("id", "username", "userAccount", "avatarUrl", "gender", 
+                "phone", "email", "userStatus", "createTime", "tags", "userRole", "planetCode");
+        queryWrapper.eq("userStatus", 0);
+        queryWrapper.eq("isDelete", 0);
+        
+        // 拼接查询条件：所有标签必须都匹配（AND连接）
+        for (String tagName : tagNameList) {
+            queryWrapper = queryWrapper.like("tags", tagName);
+        }
+        
+        // 直接查询筛选
         List<User> userList = userMapper.selectList(queryWrapper);
-        Gson gson = new Gson();
-        // 2. 在内存中判断是否包含要求的标签
-        return userList.stream().filter(user -> {
-            String tagsStr = user.getTags();
-            Set<String> tempTagNameSet = gson.fromJson(tagsStr, new TypeToken<Set<String>>() {
-            }.getType());
-            tempTagNameSet = Optional.ofNullable(tempTagNameSet).orElse(new HashSet<>());
-            for (String tagName : tagNameList) {
-                if (!tempTagNameSet.contains(tagName)) {
-                    return false;
-                }
+        log.info("SQL标签查询: 标签={}, 匹配用户数={}", String.join(",", tagNameList), userList.size());
+        
+        // 转换为安全用户
+        List<User> result = userList.stream().map(this::getSafetyUser).collect(Collectors.toList());
+        
+        // 存入缓存
+        redisTemplate.opsForValue().set(cacheKey, result, 30, TimeUnit.MINUTES);
+        
+        // 记录缓存键到标签集合
+        for (String tag : tagNameList) {
+            String tagKeysSet = "tag:" + tag + ":keys";
+            redisTemplate.opsForSet().add(tagKeysSet, cacheKey);
+        }
+        
+        return result;
+    }
+    
+    /**
+     * 根据标签搜索用户（内存过滤 + 分页）
+     *
+     * @param tagNameList 用户要拥有的标签
+     * @param pageSize 页面大小
+     * @param pageNum 当前页码
+     * @return 分页用户数据
+     */
+    @Override
+    public Page<User> searchUsersByTagsWithPagination(List<String> tagNameList, long pageSize, long pageNum) {
+        if (CollectionUtils.isEmpty(tagNameList)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        
+        // 对标签列表进行排序，确保不同顺序的相同标签生成相同的缓存键
+        List<String> sortedTags = new ArrayList<>(tagNameList);
+        Collections.sort(sortedTags);
+        
+        // 生成缓存键：user:tags:Java_Python:page:1:size:10
+        String cacheKey = String.format("user:tags:%s:page:%d:size:%d", 
+                String.join("_", sortedTags), pageNum, pageSize);
+        
+        log.info("查询缓存，键: {}", cacheKey);
+        
+        // 查询缓存
+        Object cachedResult = redisTemplate.opsForValue().get(cacheKey);
+        if (cachedResult != null) {
+            log.info("缓存命中，返回缓存结果");
+            return (Page<User>) cachedResult;
+        }
+        
+        log.info("缓存未命中，执行标签搜索 - 标签：{}，页码：{}，每页数量：{}", tagNameList, pageNum, pageSize);
+        
+        // 创建查询包装器
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        // 设置基本条件
+        queryWrapper.eq("userStatus", 0);
+        queryWrapper.eq("isDelete", 0);
+        
+        // 拼接查询条件：所有标签必须都匹配（AND连接）
+        for (String tagName : tagNameList) {
+            queryWrapper = queryWrapper.like("tags", tagName);
+        }
+        
+        // 创建计数查询包装器 - 注意：不要在计数查询中使用select()方法
+        QueryWrapper<User> countQueryWrapper = new QueryWrapper<>();
+        countQueryWrapper.eq("userStatus", 0);
+        countQueryWrapper.eq("isDelete", 0);
+        for (String tagName : tagNameList) {
+            countQueryWrapper = countQueryWrapper.like("tags", tagName);
+        }
+        
+        // 计算总记录数
+        long total = userMapper.selectCount(countQueryWrapper);
+        log.info("SQL标签查询匹配用户总数: {}", total);
+        
+        // 创建分页查询对象
+        Page<User> page = new Page<>(pageNum, pageSize);
+        
+        // 如果没有匹配的记录，直接返回空页
+        if (total == 0) {
+            page.setRecords(new ArrayList<>());
+            // 缓存空结果，避免缓存穿透，设置较短的过期时间
+            redisTemplate.opsForValue().set(cacheKey, page, 5, TimeUnit.MINUTES);
+            
+            // 记录缓存键到标签集合
+            for (String tag : tagNameList) {
+                String tagKeysSet = "tag:" + tag + ":keys";
+                redisTemplate.opsForSet().add(tagKeysSet, cacheKey);
             }
-            return true;
-        }).map(this::getSafetyUser).collect(Collectors.toList());
+            
+            return page;
+        }
+        
+        // 设置查询字段 - 仅适用于分页查询，不用于计数查询
+        queryWrapper.select("id", "username", "userAccount", "avatarUrl", "gender", 
+                "phone", "email", "userStatus", "createTime", "tags", "userRole", "planetCode");
+                
+        // 执行分页查询
+        Page<User> userPage = userMapper.selectPage(page, queryWrapper);
+        
+        // 转换为安全用户列表
+        List<User> safetyUsers = userPage.getRecords().stream()
+                .map(this::getSafetyUser)
+                .collect(Collectors.toList());
+        userPage.setRecords(safetyUsers);
+        
+        // 将分页结果存入缓存，设置30分钟过期
+        log.info("将搜索结果存入缓存，键: {}", cacheKey);
+        redisTemplate.opsForValue().set(cacheKey, userPage, 30, TimeUnit.MINUTES);
+        
+        // 将缓存键加入标签缓存集合，用于后续清除
+        for (String tag : tagNameList) {
+            String tagKeysSet = "tag:" + tag + ":keys";
+            redisTemplate.opsForSet().add(tagKeysSet, cacheKey);
+        }
+        
+        return userPage;
     }
 
     @Override
@@ -211,17 +333,58 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         if (userId <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        // todo 补充校验，如果用户没有传任何要更新的值，就直接报错，不用执行 update 语句
+        
         // 如果是管理员，允许更新任意用户
         // 如果不是管理员，只允许更新当前（自己的）信息
         if (!isAdmin(loginUser) && userId != loginUser.getId()) {
             throw new BusinessException(ErrorCode.NO_AUTH);
         }
+        
+        // 查询旧用户信息
         User oldUser = userMapper.selectById(userId);
         if (oldUser == null) {
             throw new BusinessException(ErrorCode.NULL_ERROR);
         }
-        return userMapper.updateById(user);
+        
+        // 检查参数，如果用户没有传任何要更新的值，直接返回错误
+        boolean hasUpdates = false;
+        
+        // 检查用户标签是否更新
+        boolean isTagsUpdated = false;
+        if (user.getTags() != null && !user.getTags().equals(oldUser.getTags())) {
+            isTagsUpdated = true;
+            hasUpdates = true;
+            log.info("用户 {} 的标签已更新: {} -> {}", userId, oldUser.getTags(), user.getTags());
+        }
+        
+        // 检查其他字段是否有更新
+        if (user.getUsername() != null && !user.getUsername().equals(oldUser.getUsername())) {
+            hasUpdates = true;
+        }
+        if (user.getAvatarUrl() != null && !user.getAvatarUrl().equals(oldUser.getAvatarUrl())) {
+            hasUpdates = true;
+        }
+        // 可以继续添加其他字段的检查...
+        
+        // 如果没有任何更新，直接返回
+        if (!hasUpdates) {
+            log.info("用户 {} 没有提供任何需要更新的信息", userId);
+            return 0;
+        }
+        
+        // 设置用户信息更新时间
+        user.setUpdateTime(new Date());
+        
+        // 更新用户信息
+        int result = userMapper.updateById(user);
+        
+        // 如果标签已更新且更新成功，清除该用户相关的缓存
+        if (isTagsUpdated && result > 0) {
+            log.info("标签更新成功，用户ID: {}，清除相关缓存", userId);
+            clearUserTagsCache(oldUser);
+        }
+        
+        return result;
     }
 
     @Override
@@ -285,7 +448,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             }.getType());
             // 计算分数
             long distance = AlgorithmUtils.minDistance(tagList, userTagList);
-            list.add(new Pair<>(user, distance));
+            list.add(Pair.of(user, distance));
         }
         // 按编辑距离由小到大排序
         List<Pair<User, Long>> topUserPairList = list.stream()
@@ -311,24 +474,38 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     }
 
     /**
-     * 根据标签搜索用户（SQL 查询版）
-     *
-     * @param tagNameList 用户要拥有的标签
-     * @return
+     * 清除用户标签相关的缓存
      */
-    @Deprecated
-    private List<User> searchUsersByTagsBySQL(List<String> tagNameList) {
-        if (CollectionUtils.isEmpty(tagNameList)) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+    private void clearUserTagsCache(User user) {
+        if (user == null || StringUtils.isBlank(user.getTags())) {
+            return;
         }
-        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
-        // 拼接 and 查询
-        // like '%Java%' and like '%Python%'
-        for (String tagName : tagNameList) {
-            queryWrapper = queryWrapper.like("tags", tagName);
+        
+        try {
+            // 解析用户标签
+            Gson gson = new Gson();
+            Set<String> userTags = gson.fromJson(user.getTags(), new TypeToken<Set<String>>() {}.getType());
+            
+            if (userTags != null && !userTags.isEmpty()) {
+                // 遍历用户的每个标签
+                for (String tag : userTags) {
+                    String tagKeysSet = "tag:" + tag + ":keys";
+                    
+                    // 获取该标签关联的所有缓存键
+                    Set<Object> cacheKeys = redisTemplate.opsForSet().members(tagKeysSet);
+                    
+                    if (cacheKeys != null && !cacheKeys.isEmpty()) {
+                        // 删除所有关联的缓存
+                        for (Object cacheKey : cacheKeys) {
+                            log.info("删除标签缓存，键: {}", cacheKey);
+                            redisTemplate.delete(cacheKey.toString());
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.error("清除用户标签缓存异常: {}", e.getMessage(), e);
         }
-        List<User> userList = userMapper.selectList(queryWrapper);
-        return userList.stream().map(this::getSafetyUser).collect(Collectors.toList());
     }
 
 }

@@ -6,13 +6,13 @@ export interface User {
     username: string;
     userAccount: string;
     avatarUrl?: string;
-  gender: number;
+    gender: number;
     phone: string;
     email: string;
     userStatus: number;
-  createTime: Date;
-  updateTime: Date;
+    createTime: Date;
+    updateTime: Date;
     userRole: number;
     planetCode: string;
-  tags?: string;
+    tags?: string;
 }
