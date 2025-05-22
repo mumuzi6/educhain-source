@@ -70,6 +70,22 @@ public interface UserService extends IService<User> {
     Page<User> searchUsersByTagsWithPagination(List<String> tagNameList, long pageSize, long pageNum);
 
     /**
+     * 根据标签搜索用户（Redis优化版，毫秒级响应）
+     *
+     * @param tagNameList 标签列表
+     * @param pageSize 页面大小
+     * @param pageNum 当前页码
+     * @return 分页用户数据
+     */
+    Page<User> searchUsersByTagsOptimized(List<String> tagNameList, long pageSize, long pageNum);
+    
+    /**
+     * 预热标签到用户的映射缓存
+     * 全量缓存所有标签和用户的对应关系到Redis
+     */
+    void preHeatTagsUserMapping();
+
+    /**
      * 更新用户信息
      * @param user
      * @return

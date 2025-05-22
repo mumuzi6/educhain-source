@@ -195,7 +195,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             return (List<User>) cachedResult;
         }
         
-        // 没有缓存，查询数据库 - 使用SQL LIKE查询
+        // 没有缓存，查询数据库 - 使用LIKE查询
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
         // 只查询必要字段
         queryWrapper.select("id", "username", "userAccount", "avatarUrl", "gender", 
@@ -203,14 +203,14 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         queryWrapper.eq("userStatus", 0);
         queryWrapper.eq("isDelete", 0);
         
-        // 拼接查询条件：所有标签必须都匹配（AND连接）
+        // 使用LIKE查询 - 每个标签都必须匹配
         for (String tagName : tagNameList) {
             queryWrapper = queryWrapper.like("tags", tagName);
         }
         
         // 直接查询筛选
         List<User> userList = userMapper.selectList(queryWrapper);
-        log.info("SQL标签查询: 标签={}, 匹配用户数={}", String.join(",", tagNameList), userList.size());
+        log.info("标签查询(LIKE): 标签={}, 匹配用户数={}", String.join(",", tagNameList), userList.size());
         
         // 转换为安全用户
         List<User> result = userList.stream().map(this::getSafetyUser).collect(Collectors.toList());
@@ -228,7 +228,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     }
     
     /**
-     * 根据标签搜索用户（内存过滤 + 分页）
+     * 根据标签搜索用户（分页）
      *
      * @param tagNameList 用户要拥有的标签
      * @param pageSize 页面大小
@@ -241,7 +241,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
         
-        // 对标签列表进行排序，确保不同顺序的相同标签生成相同的缓存键
+        // 对标签列表进行排序，确保不同的顺序的相同标签生成相同的缓存键
         List<String> sortedTags = new ArrayList<>(tagNameList);
         Collections.sort(sortedTags);
         
@@ -266,22 +266,24 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         queryWrapper.eq("userStatus", 0);
         queryWrapper.eq("isDelete", 0);
         
-        // 拼接查询条件：所有标签必须都匹配（AND连接）
+        // 使用LIKE查询 - 每个标签都必须匹配
         for (String tagName : tagNameList) {
             queryWrapper = queryWrapper.like("tags", tagName);
         }
         
-        // 创建计数查询包装器 - 注意：不要在计数查询中使用select()方法
+        // 创建计数查询包装器
         QueryWrapper<User> countQueryWrapper = new QueryWrapper<>();
         countQueryWrapper.eq("userStatus", 0);
         countQueryWrapper.eq("isDelete", 0);
+        
+        // 计数查询使用相同的LIKE条件
         for (String tagName : tagNameList) {
             countQueryWrapper = countQueryWrapper.like("tags", tagName);
         }
         
         // 计算总记录数
         long total = userMapper.selectCount(countQueryWrapper);
-        log.info("SQL标签查询匹配用户总数: {}", total);
+        log.info("标签查询(LIKE)匹配用户总数: {}", total);
         
         // 创建分页查询对象
         Page<User> page = new Page<>(pageNum, pageSize);
@@ -506,6 +508,337 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         } catch (Exception e) {
             log.error("清除用户标签缓存异常: {}", e.getMessage(), e);
         }
+    }
+
+    /**
+     * 根据标签搜索用户（Redis优化版，毫秒级响应）
+     *
+     * @param tagNameList 标签列表
+     * @param pageSize 页面大小
+     * @param pageNum 当前页码
+     * @return 分页用户数据
+     */
+    @Override
+    public Page<User> searchUsersByTagsOptimized(List<String> tagNameList, long pageSize, long pageNum) {
+        if (CollectionUtils.isEmpty(tagNameList)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        
+        // 对标签列表进行排序，确保相同的标签组合生成相同的缓存键
+        List<String> sortedTags = new ArrayList<>(tagNameList);
+        Collections.sort(sortedTags);
+        
+        // 生成缓存键：user:tags:optimized:Java_Python:page:1:size:10
+        String cacheKey = String.format("user:tags:optimized:%s:page:%d:size:%d", 
+                String.join("_", sortedTags), pageNum, pageSize);
+        
+        log.info("查询优化缓存，键: {}", cacheKey);
+        
+        // 查询缓存
+        try {
+            Object cachedResult = redisTemplate.opsForValue().get(cacheKey);
+            if (cachedResult != null) {
+                log.info("优化缓存命中，返回缓存结果");
+                return (Page<User>) cachedResult;
+            }
+        } catch (Exception e) {
+            log.warn("Redis缓存查询失败: {}", e.getMessage());
+            // 缓存失败时继续执行，不会阻止后续操作
+        }
+        
+        log.info("优化缓存未命中，使用Redis集合操作搜索标签：{}", String.join(", ", tagNameList));
+        
+        // 从Redis集合中获取用户ID交集
+        Set<Object> userIdsObj = null;
+        List<Long> userIdList = new ArrayList<>();
+        boolean useRedis = true;
+        
+        try {
+            if (tagNameList.size() == 1) {
+                // 单标签查询
+                String tagKey = "tag:" + tagNameList.get(0) + ":userIds";
+                userIdsObj = redisTemplate.opsForSet().members(tagKey);
+            } else {
+                // 多标签查询 - 求交集
+                List<String> tagKeys = new ArrayList<>();
+                for (String tag : tagNameList) {
+                    tagKeys.add("tag:" + tag + ":userIds");
+                }
+                
+                // 构建用于SINTER操作的键数组
+                String[] keyArray = tagKeys.toArray(new String[0]);
+                if (keyArray.length >= 2) {
+                    // 使用第一个键和其余所有键执行INTERSECT操作
+                    userIdsObj = redisTemplate.opsForSet().intersect(keyArray[0], 
+                            Arrays.asList(Arrays.copyOfRange(keyArray, 1, keyArray.length)));
+                } else {
+                    // 如果只有一个键（虽然这种情况应该不会发生，因为前面已经处理了单标签的情况）
+                    userIdsObj = redisTemplate.opsForSet().members(keyArray[0]);
+                }
+            }
+        } catch (Exception e) {
+            log.error("Redis集合操作失败，切换到数据库查询: {}", e.getMessage());
+            useRedis = false;
+        }
+        
+        // 如果Redis操作成功，处理结果
+        if (useRedis && userIdsObj != null) {
+            // 转换类型
+            for (Object idObj : userIdsObj) {
+                try {
+                    if (idObj instanceof Long) {
+                        userIdList.add((Long) idObj);
+                    } else if (idObj instanceof Integer) {
+                        userIdList.add(((Integer) idObj).longValue());
+                    } else if (idObj instanceof String) {
+                        userIdList.add(Long.parseLong((String) idObj));
+                    }
+                } catch (Exception e) {
+                    log.error("无法将对象转换为Long: {}", idObj);
+                }
+            }
+        } else if (!useRedis) {
+            // Redis失败，直接使用数据库查询
+            log.info("使用数据库备用方案查询标签用户");
+            Page<User> dbResult = searchUsersByTagsWithPagination(tagNameList, pageSize, pageNum);
+            
+            // 尝试更新缓存，但不阻止正常流程
+            try {
+                redisTemplate.opsForValue().set(cacheKey, dbResult, 30, TimeUnit.MINUTES);
+                log.info("数据库查询结果已写入缓存");
+            } catch (Exception e) {
+                log.warn("缓存数据库查询结果失败: {}", e.getMessage());
+            }
+            
+            return dbResult;
+        }
+        
+        // 如果没有匹配的用户
+        if (userIdList.isEmpty()) {
+            log.info("没有找到同时拥有所有标签的用户");
+            Page<User> emptyPage = new Page<>(pageNum, pageSize);
+            emptyPage.setRecords(new ArrayList<>());
+            emptyPage.setTotal(0);
+            
+            // 缓存空结果
+            try {
+                redisTemplate.opsForValue().set(cacheKey, emptyPage, 5, TimeUnit.MINUTES);
+            } catch (Exception e) {
+                log.warn("缓存空结果失败: {}", e.getMessage());
+            }
+            
+            return emptyPage;
+        }
+        
+        // 计算分页
+        int total = userIdList.size();
+        
+        log.info("找到 {} 个匹配所有标签的用户", total);
+        
+        // 计算分页起止位置
+        int start = (int) ((pageNum - 1) * pageSize);
+        int end = Math.min(start + (int)pageSize, total);
+        
+        // 边界检查
+        if (start >= total) {
+            log.info("分页起始位置超出总记录数，返回空页");
+            Page<User> emptyPage = new Page<>(pageNum, pageSize);
+            emptyPage.setRecords(new ArrayList<>());
+            emptyPage.setTotal(total);
+            
+            // 缓存结果
+            try {
+                redisTemplate.opsForValue().set(cacheKey, emptyPage, 30, TimeUnit.MINUTES);
+            } catch (Exception e) {
+                log.warn("缓存分页空结果失败: {}", e.getMessage());
+            }
+            
+            return emptyPage;
+        }
+        
+        // 获取分页范围内的用户详情
+        List<User> userList = new ArrayList<>();
+        for (int i = start; i < end; i++) {
+            Long userId = userIdList.get(i);
+            User user = null;
+            
+            // 尝试从Redis获取用户信息
+            try {
+                String userKey = "user:" + userId;
+                user = (User) redisTemplate.opsForValue().get(userKey);
+            } catch (Exception e) {
+                log.warn("从Redis获取用户 {} 信息失败: {}", userId, e.getMessage());
+            }
+            
+            // 如果Redis中没有或获取失败，从数据库获取
+            if (user == null) {
+                User dbUser = userMapper.selectById(userId);
+                if (dbUser != null) {
+                    user = getSafetyUser(dbUser);
+                    
+                    // 尝试更新Redis缓存
+                    try {
+                        String userKey = "user:" + userId;
+                        redisTemplate.opsForValue().set(userKey, user, 24, TimeUnit.HOURS);
+                    } catch (Exception e) {
+                        log.warn("缓存用户 {} 信息失败: {}", userId, e.getMessage());
+                    }
+                }
+            }
+            
+            if (user != null) {
+                userList.add(user);
+            }
+        }
+        
+        // 构建分页结果
+        Page<User> resultPage = new Page<>(pageNum, pageSize);
+        resultPage.setRecords(userList);
+        resultPage.setTotal(total);
+        
+        // 缓存分页结果
+        try {
+            log.info("将优化搜索结果存入缓存，键: {}", cacheKey);
+            redisTemplate.opsForValue().set(cacheKey, resultPage, 30, TimeUnit.MINUTES);
+            
+            // 将缓存键加入标签缓存集合，用于后续清除
+            for (String tag : tagNameList) {
+                String tagKeysSet = "tag:" + tag + ":keys";
+                redisTemplate.opsForSet().add(tagKeysSet, cacheKey);
+            }
+        } catch (Exception e) {
+            log.warn("缓存搜索结果失败: {}", e.getMessage());
+        }
+        
+        return resultPage;
+    }
+    
+    /**
+     * 预热标签到用户的映射缓存
+     * 全量缓存所有标签和用户的对应关系到Redis
+     */
+    @Override
+    public void preHeatTagsUserMapping() {
+        log.info("开始全量预热标签-用户映射缓存");
+        
+        // 获取所有正常状态的用户
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("userStatus", 0);
+        queryWrapper.eq("isDelete", 0);
+        queryWrapper.isNotNull("tags");
+        queryWrapper.ne("tags", "");
+        
+        List<User> allUsers = userMapper.selectList(queryWrapper);
+        log.info("找到 {} 个有标签的用户", allUsers.size());
+        
+        // 清理旧的标签-用户映射缓存
+        try {
+            Set<String> oldTagKeys = redisTemplate.keys("tag:*:userIds");
+            if (oldTagKeys != null && !oldTagKeys.isEmpty()) {
+                redisTemplate.delete(oldTagKeys);
+                log.info("已清理 {} 个旧的标签-用户映射缓存", oldTagKeys.size());
+            }
+        } catch (Exception e) {
+            log.warn("清理旧的标签-用户映射缓存失败，继续执行: {}", e.getMessage());
+        }
+        
+        // 建立标签-用户ID映射
+        Map<String, Set<Long>> tagToUserIds = new HashMap<>();
+        Gson gson = new Gson();
+        
+        for (User user : allUsers) {
+            if (StringUtils.isNotBlank(user.getTags())) {
+                try {
+                    // 解析用户标签
+                    List<String> userTags = gson.fromJson(user.getTags(), new TypeToken<List<String>>(){}.getType());
+                    for (String tag : userTags) {
+                        // 为每个标签添加对应的用户ID
+                        if (!tagToUserIds.containsKey(tag)) {
+                            tagToUserIds.put(tag, new HashSet<>());
+                        }
+                        tagToUserIds.get(tag).add(user.getId());
+                    }
+                    
+                    // 缓存用户详情，用于后续直接获取
+                    String userKey = "user:" + user.getId();
+                    try {
+                        redisTemplate.opsForValue().set(userKey, getSafetyUser(user), 24, TimeUnit.HOURS);
+                    } catch (Exception e) {
+                        log.warn("缓存用户 {} 详情失败: {}", user.getId(), e.getMessage());
+                        // 重试一次
+                        try {
+                            Thread.sleep(100); // 短暂延迟后重试
+                            redisTemplate.opsForValue().set(userKey, getSafetyUser(user), 24, TimeUnit.HOURS);
+                            log.info("重试缓存用户 {} 详情成功", user.getId());
+                        } catch (Exception retryEx) {
+                            log.error("重试缓存用户 {} 详情仍然失败: {}", user.getId(), retryEx.getMessage());
+                        }
+                    }
+                } catch (Exception e) {
+                    log.error("解析用户 {} 的标签失败: {}", user.getId(), e.getMessage());
+                }
+            }
+        }
+        
+        // 将标签-用户ID映射存入Redis
+        int tagsCount = 0;
+        int failedTags = 0;
+        
+        for (Map.Entry<String, Set<Long>> entry : tagToUserIds.entrySet()) {
+            String tag = entry.getKey();
+            Set<Long> userIdSet = entry.getValue();
+            
+            String redisKey = "tag:" + tag + ":userIds";
+            
+            boolean tagProcessed = false;
+            int retryCount = 0;
+            final int MAX_RETRIES = 3;
+            
+            while (!tagProcessed && retryCount < MAX_RETRIES) {
+                try {
+                    // 将用户ID集合存入Redis集合
+                    if (retryCount > 0) {
+                        // 如果是重试，先尝试删除可能部分写入的数据
+                        redisTemplate.delete(redisKey);
+                    }
+                    
+                    // 批量添加提高性能
+                    if (!userIdSet.isEmpty()) {
+                        redisTemplate.opsForSet().add(redisKey, userIdSet.toArray());
+                    }
+                    
+                    // 设置过期时间
+                    redisTemplate.expire(redisKey, 24, TimeUnit.HOURS);
+                    
+                    tagsCount++;
+                    log.info("标签 [{}] 关联了 {} 个用户", tag, userIdSet.size());
+                    tagProcessed = true;
+                } catch (Exception e) {
+                    retryCount++;
+                    if (retryCount < MAX_RETRIES) {
+                        log.warn("处理标签 [{}] 失败，尝试第 {} 次重试: {}", tag, retryCount, e.getMessage());
+                        try {
+                            Thread.sleep(500 * retryCount); // 递增延迟重试
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                        }
+                    } else {
+                        failedTags++;
+                        log.error("处理标签 [{}] 在 {} 次尝试后仍然失败: {}", tag, MAX_RETRIES, e.getMessage());
+                    }
+                }
+            }
+            
+            // 将缓存键加入标签缓存集合
+            try {
+                String tagKeysSet = "tag:" + tag + ":keys";
+                redisTemplate.opsForSet().add(tagKeysSet, redisKey);
+            } catch (Exception e) {
+                log.warn("将标签 [{}] 加入缓存集合失败: {}", tag, e.getMessage());
+            }
+        }
+        
+        log.info("标签-用户映射缓存预热完成，共成功处理 {} 个标签，失败 {} 个标签", tagsCount, failedTags);
     }
 
 }

@@ -84,38 +84,141 @@ public class PreCacheJob {
         }
     }
     
+//    /**
+//     * 缓存预热热门标签搜索结果（分页版）
+//     * 每天凌晨2点执行一次
+//     */
+//    @Scheduled(cron = "0 0 2 * * *")
+//    public void doCacheTagSearch() {
+//        log.info("开始执行标签搜索缓存预热");
+//        RLock lock = redissonClient.getLock("educhain:precachejob:docachetags:lock");
+//        try {
+//            // 只有一个线程能获取到锁
+//            if (lock.tryLock(0, -1, TimeUnit.MILLISECONDS)) {
+//                log.info("获取到标签搜索缓存预热锁，线程ID: {}", Thread.currentThread().getId());
+//
+//                // 记录预热开始时间
+//                long startTime = System.currentTimeMillis();
+//                int totalCacheCount = 0;
+//
+//                // 预热所有热门标签组合的所有记录集合(不分页)
+//                for (List<String> tags : hotTagsList) {
+//                    log.info("预热标签组合完整列表: {}", String.join("_", tags));
+//                    try {
+//                        // 调用不分页的方法先缓存完整结果
+//                        List<User> allUsers = userService.searchUsersByTags(tags);
+//                        log.info("标签组合 {} 完整列表预热成功，共 {} 名用户",
+//                                String.join("_", tags), allUsers.size());
+//                        totalCacheCount++;
+//                    } catch (Exception e) {
+//                        log.error("标签组合完整列表预热失败: {}", String.join("_", tags), e);
+//                    }
+//                }
+//
+//                // 为每个热门标签组合预热分页结果
+//                for (List<String> tags : hotTagsList) {
+//                    // 对标签进行排序，确保相同的标签组合生成相同的缓存键
+//                    List<String> sortedTags = new ArrayList<>(tags);
+//                    Collections.sort(sortedTags);
+//
+//                    // 为每个热门标签组合预热指定的页码
+//                    for (Integer pageNum : PRELOAD_PAGE_NUMS) {
+//                        log.info("预热分页结果: {}，页码: {}, 每页大小: {}",
+//                                String.join("_", sortedTags), pageNum, PAGE_SIZE);
+//
+//                        try {
+//                            // 直接调用分页方法获取结果并缓存
+//                            Page<User> userPage = userService.searchUsersByTagsWithPagination(tags, PAGE_SIZE, pageNum);
+//                            log.info("标签 {} 第 {} 页预热成功，共找到 {} 名用户",
+//                                    String.join("_", sortedTags), pageNum, userPage.getTotal());
+//                            totalCacheCount++;
+//                        } catch (Exception e) {
+//                            log.error("标签分页预热失败: tags={}, page={}, size={}",
+//                                    String.join("_", sortedTags), pageNum, PAGE_SIZE, e);
+//                        }
+//                    }
+//                }
+//
+//                // 添加额外的热门组合预热
+//                List<List<String>> additionalCombinations = Arrays.asList(
+//                    Arrays.asList("Java", "开发"),
+//                    Arrays.asList("作曲", "唱歌"),
+//                    Arrays.asList("游戏", "键盘手"),
+//                    Arrays.asList("Java", "音乐", "动漫")
+//                );
+//
+//                for (List<String> tags : additionalCombinations) {
+//                    try {
+//                        // 先缓存完整列表
+//                        List<User> allUsers = userService.searchUsersByTags(tags);
+//                        log.info("额外标签组合 {} 完整列表预热成功，共 {} 名用户",
+//                                String.join("_", tags), allUsers.size());
+//                        totalCacheCount++;
+//
+//                        // 只预热第一页
+//                        log.info("预热额外标签组合: {}，页码: 1", String.join("_", tags));
+//                        Page<User> userPage = userService.searchUsersByTagsWithPagination(tags, PAGE_SIZE, 1);
+//                        log.info("额外标签组合 {} 预热成功，共找到 {} 名用户",
+//                                String.join("_", tags), userPage.getTotal());
+//                        totalCacheCount++;
+//                    } catch (Exception e) {
+//                        log.error("额外标签组合预热失败: tags={}", String.join("_", tags), e);
+//                    }
+//                }
+//
+//                // 记录预热完成情况
+//                long endTime = System.currentTimeMillis();
+//                log.info("标签缓存预热完成，共预热 {} 个缓存，耗时 {} 秒",
+//                        totalCacheCount, (endTime - startTime) / 1000);
+//            }
+//        } catch (InterruptedException e) {
+//            log.error("标签搜索缓存预热任务异常", e);
+//        } finally {
+//            // 只能释放自己的锁
+//            if (lock.isHeldByCurrentThread()) {
+//                log.info("释放标签搜索缓存预热锁，线程ID: {}", Thread.currentThread().getId());
+//                lock.unlock();
+//            }
+//        }
+//    }
+    
     /**
-     * 缓存预热热门标签搜索结果（分页版）
-     * 每隔4小时执行一次
+     * 预热标签-用户映射关系（优化版）
+     * 每天凌晨4点执行一次
      */
-    @Scheduled(cron = "0 0 */4 * * *") // 每隔4小时执行一次
-    public void doCacheTagSearch() {
-        log.info("开始执行标签搜索缓存预热");
-        RLock lock = redissonClient.getLock("educhain:precachejob:docachetags:lock");
+    @Scheduled(cron = "0 0 4 * * *")
+    public void doPreHeatTagsUserMapping() {
+        log.info("开始执行标签-用户映射预热任务");
+        RLock lock = redissonClient.getLock("educhain:precachejob:tagsusermapping:lock");
         try {
             // 只有一个线程能获取到锁
             if (lock.tryLock(0, -1, TimeUnit.MILLISECONDS)) {
-                log.info("获取到标签搜索缓存预热锁，线程ID: {}", Thread.currentThread().getId());
+                log.info("获取到标签-用户映射预热锁，线程ID: {}", Thread.currentThread().getId());
                 
                 // 记录预热开始时间
                 long startTime = System.currentTimeMillis();
-                int totalCacheCount = 0;
                 
-                // 预热所有热门标签组合的所有记录集合(不分页)
-                for (List<String> tags : hotTagsList) {
-                    log.info("预热标签组合完整列表: {}", String.join("_", tags));
+                // 执行预热，增加异常处理
+                try {
+                    userService.preHeatTagsUserMapping();
+                } catch (Exception e) {
+                    log.error("执行标签-用户映射预热失败: {}", e.getMessage(), e);
+                    // 失败后延迟10秒再次尝试
                     try {
-                        // 调用不分页的方法先缓存完整结果
-                        List<User> allUsers = userService.searchUsersByTags(tags);
-                        log.info("标签组合 {} 完整列表预热成功，共 {} 名用户", 
-                                String.join("_", tags), allUsers.size());
-                        totalCacheCount++;
-                    } catch (Exception e) {
-                        log.error("标签组合完整列表预热失败: {}", String.join("_", tags), e);
+                        log.info("10秒后尝试重新执行标签-用户映射预热");
+                        Thread.sleep(10000);
+                        userService.preHeatTagsUserMapping();
+                        log.info("重试标签-用户映射预热成功");
+                    } catch (Exception retryEx) {
+                        log.error("重试标签-用户映射预热失败: {}", retryEx.getMessage(), retryEx);
                     }
                 }
                 
-                // 为每个热门标签组合预热分页结果
+                // 为热门标签组合预热优化版搜索结果
+                int totalOptimizedCacheCount = 0;
+                int failedCacheCount = 0;
+                
+                // 预热热门标签组合的优化版搜索结果
                 for (List<String> tags : hotTagsList) {
                     // 对标签进行排序，确保相同的标签组合生成相同的缓存键
                     List<String> sortedTags = new ArrayList<>(tags);
@@ -123,18 +226,33 @@ public class PreCacheJob {
                     
                     // 为每个热门标签组合预热指定的页码
                     for (Integer pageNum : PRELOAD_PAGE_NUMS) {
-                        log.info("预热分页结果: {}，页码: {}, 每页大小: {}", 
+                        log.info("预热优化版分页结果: {}，页码: {}, 每页大小: {}", 
                                 String.join("_", sortedTags), pageNum, PAGE_SIZE);
                         
                         try {
-                            // 直接调用分页方法获取结果并缓存
-                            Page<User> userPage = userService.searchUsersByTagsWithPagination(tags, PAGE_SIZE, pageNum);
-                            log.info("标签 {} 第 {} 页预热成功，共找到 {} 名用户", 
+                            // 直接调用优化版分页方法获取结果并缓存
+                            Page<User> userPage = userService.searchUsersByTagsOptimized(tags, PAGE_SIZE, pageNum);
+                            log.info("优化版标签 {} 第 {} 页预热成功，共找到 {} 名用户", 
                                     String.join("_", sortedTags), pageNum, userPage.getTotal());
-                            totalCacheCount++;
+                            totalOptimizedCacheCount++;
+                            
+                            // 预热成功后稍微暂停，避免对Redis造成过大压力
+                            try {
+                                Thread.sleep(50);
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                            }
                         } catch (Exception e) {
-                            log.error("标签分页预热失败: tags={}, page={}, size={}", 
-                                    String.join("_", sortedTags), pageNum, PAGE_SIZE, e);
+                            failedCacheCount++;
+                            log.error("优化版标签分页预热失败: tags={}, page={}, size={}, error={}", 
+                                    String.join("_", sortedTags), pageNum, PAGE_SIZE, e.getMessage());
+                            
+                            // 暂停一下，避免连续失败
+                            try {
+                                Thread.sleep(500);
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                            }
                         }
                     }
                 }
@@ -149,34 +267,46 @@ public class PreCacheJob {
                 
                 for (List<String> tags : additionalCombinations) {
                     try {
-                        // 先缓存完整列表
-                        List<User> allUsers = userService.searchUsersByTags(tags);
-                        log.info("额外标签组合 {} 完整列表预热成功，共 {} 名用户", 
-                                String.join("_", tags), allUsers.size());
-                        totalCacheCount++;
-                        
                         // 只预热第一页
-                        log.info("预热额外标签组合: {}，页码: 1", String.join("_", tags));
-                        Page<User> userPage = userService.searchUsersByTagsWithPagination(tags, PAGE_SIZE, 1);
-                        log.info("额外标签组合 {} 预热成功，共找到 {} 名用户", 
+                        log.info("预热优化版额外标签组合: {}，页码: 1", String.join("_", tags));
+                        Page<User> userPage = userService.searchUsersByTagsOptimized(tags, PAGE_SIZE, 1);
+                        log.info("优化版额外标签组合 {} 预热成功，共找到 {} 名用户", 
                                 String.join("_", tags), userPage.getTotal());
-                        totalCacheCount++;
+                        totalOptimizedCacheCount++;
+                        
+                        // 预热成功后稍微暂停，避免对Redis造成过大压力
+                        try {
+                            Thread.sleep(50);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                        }
                     } catch (Exception e) {
-                        log.error("额外标签组合预热失败: tags={}", String.join("_", tags), e);
+                        failedCacheCount++;
+                        log.error("优化版额外标签组合预热失败: tags={}, error={}", 
+                                String.join("_", tags), e.getMessage());
+                        
+                        // 暂停一下，避免连续失败
+                        try {
+                            Thread.sleep(500);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                        }
                     }
                 }
                 
                 // 记录预热完成情况
                 long endTime = System.currentTimeMillis();
-                log.info("标签缓存预热完成，共预热 {} 个缓存，耗时 {} 秒", 
-                        totalCacheCount, (endTime - startTime) / 1000);
+                log.info("标签-用户映射预热完成，共预热成功 {} 个优化版缓存，失败 {} 个，耗时 {} 秒", 
+                        totalOptimizedCacheCount, failedCacheCount, (endTime - startTime) / 1000);
             }
         } catch (InterruptedException e) {
-            log.error("标签搜索缓存预热任务异常", e);
+            log.error("标签-用户映射预热任务异常", e);
+        } catch (Exception e) {
+            log.error("标签-用户映射预热任务发生未预期的异常", e);
         } finally {
             // 只能释放自己的锁
             if (lock.isHeldByCurrentThread()) {
-                log.info("释放标签搜索缓存预热锁，线程ID: {}", Thread.currentThread().getId());
+                log.info("释放标签-用户映射预热锁，线程ID: {}", Thread.currentThread().getId());
                 lock.unlock();
             }
         }
@@ -187,7 +317,7 @@ public class PreCacheJob {
      */
     public void manualTriggerCachePreheating() {
         log.info("手动触发标签缓存预热");
-        doCacheTagSearch();
+        doPreHeatTagsUserMapping();
     }
     
     /**
