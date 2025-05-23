@@ -8,7 +8,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * MyBatisPlus 配置
+ * MyBatis Plus 配置
  */
 @Configuration
 @MapperScan("com.kryos.educhain.mapper")

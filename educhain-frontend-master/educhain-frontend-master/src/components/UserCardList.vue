@@ -31,7 +31,7 @@
           </template>
           <template #footer>
             <div class="card-footer">
-              <van-button size="small" type="primary" icon="chat-o">联系我</van-button>
+              <van-button size="small" type="primary" icon="chat-o" @click="handleContact(user.id)">联系我</van-button>
               <van-button size="small" icon="star-o">收藏</van-button>
             </div>
           </template>
@@ -43,6 +43,9 @@
 
 <script setup lang="ts">
 import {User} from "../models/user";
+import { useRouter } from 'vue-router';
+
+const router = useRouter();
 
 interface UserCardListProps {
   loading: boolean;
@@ -54,6 +57,17 @@ const props = withDefaults(defineProps<UserCardListProps>(), {
   // @ts-ignore
   userList: [] as User[],
 });
+
+/**
+ * 处理联系用户事件
+ * @param userId 用户ID
+ */
+const handleContact = (userId: number) => {
+  router.push({
+    path: '/chat',
+    query: { userId }
+  });
+};
 </script>
 
 <style scoped>

@@ -12,6 +12,8 @@ import UserLoginPage from "../pages/UserLoginPage.vue";
 import UserRegisterPage from "../pages/UserRegisterPage.vue";
 import TeamAddPage from "../pages/TeamAddPage.vue";
 import TeamUpdatePage from "../pages/TeamUpdatePage.vue";
+import ChatPage from "../pages/ChatPage.vue";
+import ChatListPage from "../pages/ChatListPage.vue";
 
 
 const routes = [
@@ -28,6 +30,8 @@ const routes = [
     { path: '/user/update', title: '更新信息', component: UserUpdatePage },
     { path: '/user/team/join', title: '加入队伍', component: UserTeamJoinPage },
     { path: '/user/team/create', title: '创建队伍', component: UserTeamCreatePage },
+    { path: '/chat', title: '聊天', component: ChatPage },
+    { path: '/messages', title: '我的消息', component: ChatListPage },
 ]
 
 export default routes;

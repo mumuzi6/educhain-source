@@ -205,7 +205,7 @@
                 <van-switch v-model="isDarkMode" size="24" />
               </template>
             </van-cell>
-            <van-cell title="消息通知" is-link to="/notifications" icon="volume-o" />
+            <van-cell title="消息通知" is-link to="/messages" icon="volume-o" />
             <van-cell title="修改信息" is-link to="/user/update" icon="edit" />
             <van-cell title="退出登录" is-link @click="onLogout" icon="close" />
           </van-cell-group>
