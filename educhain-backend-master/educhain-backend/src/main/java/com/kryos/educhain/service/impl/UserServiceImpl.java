@@ -351,7 +351,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         // 检查参数，如果用户没有传任何要更新的值，直接返回错误
         boolean hasUpdates = false;
         
-        // 检查用户标签是否更新
+        // 单独处理标签字段，因为它需要特殊逻辑来清除缓存
         boolean isTagsUpdated = false;
         if (user.getTags() != null && !user.getTags().equals(oldUser.getTags())) {
             isTagsUpdated = true;
@@ -359,14 +359,37 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             log.info("用户 {} 的标签已更新: {} -> {}", userId, oldUser.getTags(), user.getTags());
         }
         
-        // 检查其他字段是否有更新
+        // 检查其他所有可更新字段
+        // 用户名
         if (user.getUsername() != null && !user.getUsername().equals(oldUser.getUsername())) {
             hasUpdates = true;
+            log.info("用户 {} 的用户名已更新: {} -> {}", userId, oldUser.getUsername(), user.getUsername());
         }
+        // 头像
         if (user.getAvatarUrl() != null && !user.getAvatarUrl().equals(oldUser.getAvatarUrl())) {
             hasUpdates = true;
+            log.info("用户 {} 的头像已更新", userId);
         }
-        // 可以继续添加其他字段的检查...
+        // 性别
+        if (user.getGender() != null && !user.getGender().equals(oldUser.getGender())) {
+            hasUpdates = true;
+            log.info("用户 {} 的性别已更新: {} -> {}", userId, oldUser.getGender(), user.getGender());
+        }
+        // 电话
+        if (user.getPhone() != null && !user.getPhone().equals(oldUser.getPhone())) {
+            hasUpdates = true;
+            log.info("用户 {} 的电话号码已更新: {} -> {}", userId, oldUser.getPhone(), user.getPhone());
+        }
+        // 邮箱
+        if (user.getEmail() != null && !user.getEmail().equals(oldUser.getEmail())) {
+            hasUpdates = true;
+            log.info("用户 {} 的邮箱已更新: {} -> {}", userId, oldUser.getEmail(), user.getEmail());
+        }
+        // 星球编号
+        if (user.getPlanetCode() != null && !user.getPlanetCode().equals(oldUser.getPlanetCode())) {
+            hasUpdates = true;
+            log.info("用户 {} 的星球编号已更新: {} -> {}", userId, oldUser.getPlanetCode(), user.getPlanetCode());
+        }
         
         // 如果没有任何更新，直接返回
         if (!hasUpdates) {
@@ -839,6 +862,78 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         }
         
         log.info("标签-用户映射缓存预热完成，共成功处理 {} 个标签，失败 {} 个标签", tagsCount, failedTags);
+    }
+
+    /**
+     * 根据用户名或用户账号搜索用户（毫秒级响应）
+     *
+     * @param searchText 搜索文本，可以是用户名或账号
+     * @param pageSize 页面大小
+     * @param pageNum 当前页码
+     * @return 分页用户数据
+     */
+    @Override
+    public Page<User> searchUsersByUsernameOrAccount(String searchText, long pageSize, long pageNum) {
+        if (StringUtils.isBlank(searchText)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "搜索关键词不能为空");
+        }
+        
+        // 生成缓存键
+        String cacheKey = String.format("user:search:text:%s:page:%d:size:%d", 
+                searchText, pageNum, pageSize);
+        
+        log.info("查询用户名/账号缓存，键: {}", cacheKey);
+        
+        // 查询缓存
+        try {
+            Object cachedResult = redisTemplate.opsForValue().get(cacheKey);
+            if (cachedResult != null) {
+                log.info("用户名/账号缓存命中，返回缓存结果");
+                return (Page<User>) cachedResult;
+            }
+        } catch (Exception e) {
+            log.warn("Redis缓存查询失败: {}", e.getMessage());
+            // 缓存失败时继续执行，不会阻止后续操作
+        }
+        
+        log.info("用户名/账号缓存未命中，执行数据库查询: {}", searchText);
+        
+        // 创建查询包装器
+        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
+        // 设置基本条件
+        queryWrapper.eq("userStatus", 0);
+        queryWrapper.eq("isDelete", 0);
+        
+        // 使用OR条件查询用户名和账号
+        queryWrapper.and(wrapper -> 
+            wrapper.like("username", searchText).or().like("userAccount", searchText)
+        );
+        
+        // 只查询需要的字段
+        queryWrapper.select("id", "username", "userAccount", "avatarUrl", "gender", 
+                "phone", "email", "userStatus", "createTime", "tags", "userRole", "planetCode");
+        
+        // 创建分页查询对象
+        Page<User> page = new Page<>(pageNum, pageSize);
+        
+        // 执行分页查询
+        Page<User> userPage = userMapper.selectPage(page, queryWrapper);
+        
+        // 转换为安全用户列表
+        List<User> safetyUsers = userPage.getRecords().stream()
+                .map(this::getSafetyUser)
+                .collect(Collectors.toList());
+        userPage.setRecords(safetyUsers);
+        
+        // 将分页结果存入缓存，设置10分钟过期（用户名/账号搜索缓存时间可以短一些）
+        try {
+            log.info("将用户名/账号搜索结果存入缓存，键: {}", cacheKey);
+            redisTemplate.opsForValue().set(cacheKey, userPage, 10, TimeUnit.MINUTES);
+        } catch (Exception e) {
+            log.warn("缓存搜索结果失败: {}", e.getMessage());
+        }
+        
+        return userPage;
     }
 
 }

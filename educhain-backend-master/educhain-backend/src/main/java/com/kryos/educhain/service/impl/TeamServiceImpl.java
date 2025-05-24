@@ -19,6 +19,8 @@ import com.kryos.educhain.model.domain.Team;
 import com.kryos.educhain.mapper.TeamMapper;
 import com.kryos.educhain.service.UserService;
 import com.kryos.educhain.service.UserTeamService;
+import com.kryos.educhain.utils.InviteCodeUtils;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.CalendarUtils;
@@ -42,6 +44,7 @@ import java.util.concurrent.TimeUnit;
  * 队伍服务实现类
  */
 @Service
+@Slf4j
 public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
         implements TeamService {
 
@@ -246,15 +249,25 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
         }
         Integer status = team.getStatus();
         TeamStatusEnum teamStatusEnum = TeamStatusEnum.getEnumByValue(status);
+        
+        // 修改私有队伍的加入逻辑
         if (TeamStatusEnum.PRIVATE.equals(teamStatusEnum)) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "禁止加入私有队伍");
+            // 私有队伍通过邀请码加入
+            String inviteCode = teamJoinRequest.getInviteCode();
+            log.info("尝试加入私有队伍: teamId={}, inviteCode={}", teamId, inviteCode);
+            if (StringUtils.isBlank(inviteCode) || !isValidInviteCode(inviteCode, teamId)) {
+                throw new BusinessException(ErrorCode.PARAMS_ERROR, "邀请码无效，禁止加入私有队伍");
+            }
         }
+        
+        // 加密队伍逻辑保持不变
         String password = teamJoinRequest.getPassword();
         if (TeamStatusEnum.SECRET.equals(teamStatusEnum)) {
             if (StringUtils.isBlank(password) || !password.equals(team.getPassword())) {
                 throw new BusinessException(ErrorCode.PARAMS_ERROR, "密码错误");
             }
         }
+        
         // 该用户已加入的队伍数量
         long userId = loginUser.getId();
         // 只有一个线程能获取到锁
@@ -402,6 +415,29 @@ public class TeamServiceImpl extends ServiceImpl<TeamMapper, Team>
         QueryWrapper<UserTeam> userTeamQueryWrapper = new QueryWrapper<>();
         userTeamQueryWrapper.eq("teamId", teamId);
         return userTeamService.count(userTeamQueryWrapper);
+    }
+
+    /**
+     * 生成队伍邀请码
+     *
+     * @param teamId
+     * @return
+     */
+    @Override
+    public String generateInviteCode(Long teamId) {
+        return InviteCodeUtils.generateInviteCode(teamId);
+    }
+
+    /**
+     * 验证邀请码是否有效
+     *
+     * @param inviteCode
+     * @param teamId
+     * @return
+     */
+    @Override
+    public boolean isValidInviteCode(String inviteCode, Long teamId) {
+        return InviteCodeUtils.isValidInviteCode(inviteCode, teamId);
     }
 }
 

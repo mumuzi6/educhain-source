@@ -1,78 +1,124 @@
 <template>
-  <form action="/">
-    <van-search
-        v-model="searchText"
-        show-action
-        placeholder="请输入要搜索的标签"
-        @search="onSearch"
-        @cancel="onCancel"
-    />
-  </form>
-  
-  <!-- 标签选择历史记录 -->
-  <van-divider content-position="left">历史标签组合</van-divider>
-  <div v-if="tagHistory.length === 0" class="empty-history">暂无历史记录</div>
-  <div v-else class="history-container">
-    <van-swipe :width="300" :show-indicators="false" :loop="false">
-      <van-swipe-item v-for="(historyItem, index) in tagHistory" :key="index">
-        <div class="history-item">
-          <div class="history-tags">
-            <van-tag 
-              v-for="tag in historyItem.tags" 
-              :key="tag" 
+  <!-- 搜索模式切换 -->
+  <van-tabs v-model:active="searchMode" sticky>
+    <van-tab title="标签搜索" name="tag">
+      <form action="/">
+        <van-search
+            v-model="searchText"
+            show-action
+            placeholder="请输入要搜索的标签"
+            @search="onSearch"
+            @cancel="onCancel"
+        />
+      </form>
+      
+      <!-- 标签选择历史记录 -->
+      <van-divider content-position="left">历史标签组合</van-divider>
+      <div v-if="tagHistory.length === 0" class="empty-history">暂无历史记录</div>
+      <div v-else class="history-container">
+        <van-swipe :width="300" :show-indicators="false" :loop="false">
+          <van-swipe-item v-for="(historyItem, index) in tagHistory" :key="index">
+            <div class="history-item">
+              <div class="history-tags">
+                <van-tag 
+                  v-for="tag in historyItem.tags" 
+                  :key="tag" 
+                  type="primary" 
+                  size="medium" 
+                  style="margin: 2px"
+                >{{ tag }}</van-tag>
+              </div>
+              <div class="history-actions">
+                <van-button size="mini" type="primary" @click="useHistoryTags(historyItem.tags)">使用</van-button>
+                <van-button size="mini" plain @click="removeHistory(index)">删除</van-button>
+              </div>
+            </div>
+          </van-swipe-item>
+        </van-swipe>
+      </div>
+      
+      <!-- 已选标签区域 -->
+      <van-divider content-position="left">已选标签</van-divider>
+      <div v-if="activeIds.length === 0" class="empty-selected">请选择标签</div>
+      <div v-else class="selected-tags-container">
+        <div class="selected-tags">
+          <van-col v-for="tag in activeIds" :key="tag">
+            <van-tag closeable size="medium" type="primary" @close="doClose(tag)" style="margin: 2px">
+              {{ tag }}
+            </van-tag>
+          </van-col>
+        </div>
+        <div class="clear-tags-btn">
+          <van-button 
+            size="small" 
+            type="danger" 
+            icon="delete" 
+            @click="clearAllTags"
+            class="clear-button"
+          >清空所有</van-button>
+        </div>
+      </div>
+      
+      <van-divider content-position="left">选择标签</van-divider>
+      <div class="tag-selector">
+        <van-tree-select
+            v-model:active-id="activeIds"
+            v-model:main-active-index="activeIndex"
+            :items="tagList"
+        />
+      </div>
+      
+      <div class="search-button-container">
+        <van-button block type="primary" :loading="loading" @click="doSearchResult">
+          <template #loading>
+            <van-loading type="spinner" />
+          </template>
+          搜索
+        </van-button>
+      </div>
+    </van-tab>
+
+    <van-tab title="用户名/账号搜索" name="text">
+      <van-search
+          v-model="usernameSearchText"
+          show-action
+          placeholder="请输入用户名或账号"
+          @search="doTextSearch" 
+          @cancel="cancelTextSearch"
+      />
+
+      <div class="text-search-tips">
+        <p>提示：可输入用户名或用户账号进行搜索</p>
+      </div>
+      
+      <!-- 用户名搜索历史记录 -->
+      <template v-if="userSearchHistory.length > 0">
+        <van-divider content-position="left">历史搜索</van-divider>
+        <div class="username-history">
+          <div v-for="(item, index) in userSearchHistory" :key="index" class="history-tag">
+            <van-tag
               type="primary" 
-              size="medium" 
-              style="margin: 2px"
-            >{{ tag }}</van-tag>
-          </div>
-          <div class="history-actions">
-            <van-button size="mini" type="primary" @click="useHistoryTags(historyItem.tags)">使用</van-button>
-            <van-button size="mini" plain @click="removeHistory(index)">删除</van-button>
+              size="medium"
+              @click="useHistorySearch(item)"
+              plain
+            >
+              {{ item }}
+              <van-icon name="cross" @click.stop="removeUserSearchHistory(index)" />
+            </van-tag>
           </div>
         </div>
-      </van-swipe-item>
-    </van-swipe>
-  </div>
-  
-  <!-- 已选标签区域 -->
-  <van-divider content-position="left">已选标签</van-divider>
-  <div v-if="activeIds.length === 0" class="empty-selected">请选择标签</div>
-  <div v-else class="selected-tags-container">
-    <div class="selected-tags">
-      <van-col v-for="tag in activeIds" :key="tag">
-        <van-tag closeable size="medium" type="primary" @close="doClose(tag)" style="margin: 2px">
-          {{ tag }}
-        </van-tag>
-      </van-col>
-    </div>
-    <div class="clear-tags-btn">
-      <van-button 
-        size="small" 
-        type="danger" 
-        icon="delete" 
-        @click="clearAllTags"
-        class="clear-button"
-      >清空所有</van-button>
-    </div>
-  </div>
-  
-  <van-divider content-position="left">选择标签</van-divider>
-  <div class="tag-selector">
-    <van-tree-select
-        v-model:active-id="activeIds"
-        v-model:main-active-index="activeIndex"
-        :items="tagList"
-    />
-  </div>
-  
-  <div class="search-button-container">
-    <van-button block type="primary" :loading="loading" @click="doSearchResult">
-      <template #loading>
-        <van-loading type="spinner" />
       </template>
-      搜索
-    </van-button>
-  </div>
+      
+      <div class="search-button-container">
+        <van-button block type="primary" :loading="loading" @click="doTextSearch">
+          <template #loading>
+            <van-loading type="spinner" />
+          </template>
+          搜索
+        </van-button>
+      </div>
+    </van-tab>
+  </van-tabs>
 </template>
 
 <script setup lang="ts">
@@ -83,6 +129,9 @@ import { Toast, Dialog } from 'vant';
 const router = useRouter()
 const loading = ref(false);
 const searchText = ref('');
+const searchMode = ref('tag');
+const usernameSearchText = ref('');
+const userSearchHistory = ref<string[]>([]);
 
 // 定义标签数据的接口
 interface TagChild {
@@ -182,15 +231,43 @@ const loadTagHistory = () => {
   }
 };
 
+// 从本地存储加载用户搜索历史记录
+const loadUserSearchHistory = () => {
+  const savedHistory = localStorage.getItem('userSearchHistory');
+  if (savedHistory) {
+    try {
+      userSearchHistory.value = JSON.parse(savedHistory);
+      // 限制历史记录数量，只保留最近的10条
+      if (userSearchHistory.value.length > 10) {
+        userSearchHistory.value = userSearchHistory.value.slice(0, 10);
+      }
+    } catch (e) {
+      console.error('加载用户搜索历史记录失败', e);
+      userSearchHistory.value = [];
+    }
+  }
+};
+
 // 保存历史记录到本地存储
 const saveTagHistory = () => {
   localStorage.setItem('tagSearchHistory', JSON.stringify(tagHistory.value));
+};
+
+// 保存用户搜索历史记录到本地存储
+const saveUserSearchHistory = () => {
+  localStorage.setItem('userSearchHistory', JSON.stringify(userSearchHistory.value));
 };
 
 // 使用历史标签组合
 const useHistoryTags = (tags: string[]) => {
   activeIds.value = [...tags];
   Toast('已应用历史标签组合');
+};
+
+// 使用历史用户搜索
+const useHistorySearch = (text: string) => {
+  usernameSearchText.value = text;
+  Toast('已应用历史搜索');
 };
 
 // 移除历史记录
@@ -203,6 +280,13 @@ const removeHistory = (index: number) => {
     saveTagHistory();
     Toast('已删除');
   });
+};
+
+// 移除用户搜索历史记录
+const removeUserSearchHistory = (index: number) => {
+  userSearchHistory.value.splice(index, 1);
+  saveUserSearchHistory();
+  Toast('已删除');
 };
 
 // 添加标签组合到历史记录
@@ -245,6 +329,27 @@ const addToHistory = (tags: string[]) => {
   }
 };
 
+// 添加用户搜索到历史记录
+const addUserSearchToHistory = (text: string) => {
+  if (!text.trim()) return;
+  
+  // 如果已存在，先移除
+  const index = userSearchHistory.value.findIndex(item => item === text);
+  if (index !== -1) {
+    userSearchHistory.value.splice(index, 1);
+  }
+  
+  // 添加到最前面
+  userSearchHistory.value.unshift(text);
+  
+  // 限制最多10条记录
+  if (userSearchHistory.value.length > 10) {
+    userSearchHistory.value.pop();
+  }
+  
+  saveUserSearchHistory();
+};
+
 // 在组件挂载时初始化标签数据和加载历史记录
 onMounted(async () => {
   // 使用默认标签数据
@@ -253,6 +358,7 @@ onMounted(async () => {
   
   // 加载历史记录
   loadTagHistory();
+  loadUserSearchHistory();
 });
 
 /**
@@ -290,6 +396,10 @@ const onCancel = () => {
   tagList.value = [...originTagList.value];
 };
 
+const cancelTextSearch = () => {
+  usernameSearchText.value = '';
+};
+
 // 移除标签
 const doClose = (tag: string) => {
   activeIds.value = activeIds.value.filter(item => {
@@ -313,7 +423,7 @@ const clearAllTags = () => {
 }
 
 /**
- * 执行搜索
+ * 执行标签搜索
  */
 const doSearchResult = () => {
   if (activeIds.value.length === 0) {
@@ -329,6 +439,29 @@ const doSearchResult = () => {
     path: '/user/list',
     query: {
       tags: activeIds.value
+    }
+  }).finally(() => {
+    loading.value = false;
+  });
+}
+
+/**
+ * 执行用户名/账号搜索
+ */
+const doTextSearch = () => {
+  if (!usernameSearchText.value.trim()) {
+    Toast('请输入要搜索的用户名或账号');
+    return;
+  }
+  
+  // 添加到搜索历史
+  addUserSearchToHistory(usernameSearchText.value);
+  
+  loading.value = true;
+  router.push({
+    path: '/user/text-search',
+    query: {
+      searchText: usernameSearchText.value
     }
   }).finally(() => {
     loading.value = false;
@@ -401,6 +534,26 @@ const doSearchResult = () => {
   bottom: 0;
   background-color: #fff;
   box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.text-search-tips {
+  padding: 10px 16px;
+  color: #666;
+  font-size: 14px;
+  background-color: #f5f7fa;
+  margin: 0 16px 16px;
+  border-radius: 8px;
+}
+
+.username-history {
+  padding: 0 16px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.history-tag {
+  margin-bottom: 5px;
 }
 
 /* 移动设备响应式布局 */

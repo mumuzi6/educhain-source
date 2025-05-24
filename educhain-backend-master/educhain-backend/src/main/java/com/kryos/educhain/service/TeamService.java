@@ -69,4 +69,21 @@ public interface TeamService extends IService<Team> {
      * @return
      */
     boolean deleteTeam(long id, User loginUser);
+    
+    /**
+     * 生成队伍邀请码
+     *
+     * @param teamId
+     * @return
+     */
+    String generateInviteCode(Long teamId);
+    
+    /**
+     * 验证邀请码是否有效
+     *
+     * @param inviteCode
+     * @param teamId
+     * @return
+     */
+    boolean isValidInviteCode(String inviteCode, Long teamId);
 }

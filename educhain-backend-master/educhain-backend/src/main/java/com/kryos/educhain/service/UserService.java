@@ -80,6 +80,16 @@ public interface UserService extends IService<User> {
     Page<User> searchUsersByTagsOptimized(List<String> tagNameList, long pageSize, long pageNum);
     
     /**
+     * 根据用户名或用户账号搜索用户（毫秒级响应）
+     *
+     * @param searchText 搜索文本，可以是用户名或账号
+     * @param pageSize 页面大小
+     * @param pageNum 当前页码
+     * @return 分页用户数据
+     */
+    Page<User> searchUsersByUsernameOrAccount(String searchText, long pageSize, long pageNum);
+    
+    /**
      * 预热标签到用户的映射缓存
      * 全量缓存所有标签和用户的对应关系到Redis
      */

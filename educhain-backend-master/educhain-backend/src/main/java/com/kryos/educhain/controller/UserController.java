@@ -414,4 +414,25 @@ public class UserController {
         }
     }
 
+    /**
+     * 根据用户名或用户账号搜索用户
+     *
+     * @param searchText 搜索文本，可以是用户名或账号
+     * @param pageSize 页面大小
+     * @param pageNum 当前页码
+     * @return 分页用户数据
+     */
+    @GetMapping("/search/text")
+    public BaseResponse<Page<User>> searchUsersByUsernameOrAccount(
+            @RequestParam(required = true) String searchText,
+            @RequestParam(defaultValue = "10") long pageSize,
+            @RequestParam(defaultValue = "1") long pageNum) {
+        if (StringUtils.isBlank(searchText)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "搜索关键词不能为空");
+        }
+        
+        Page<User> userPage = userService.searchUsersByUsernameOrAccount(searchText, pageSize, pageNum);
+        return ResultUtils.success(userPage);
+    }
+
 }

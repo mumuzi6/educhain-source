@@ -14,6 +14,7 @@ import TeamAddPage from "../pages/TeamAddPage.vue";
 import TeamUpdatePage from "../pages/TeamUpdatePage.vue";
 import ChatPage from "../pages/ChatPage.vue";
 import ChatListPage from "../pages/ChatListPage.vue";
+import TeamJoinByInvitePage from "../pages/TeamJoinByInvitePage.vue";
 
 
 const routes = [
@@ -21,6 +22,7 @@ const routes = [
     { path: '/team', title: '找队伍', component: Team },
     { path: '/team/add', title: '创建队伍', component: TeamAddPage },
     { path: '/team/update', title: '更新队伍', component: TeamUpdatePage },
+    { path: '/team/join', title: '加入队伍', component: TeamJoinByInvitePage },
     { path: '/user', title: '个人信息', component: UserPage },
     { path: '/search', title: '找伙伴', component: SearchPage },
     { path: '/user/list', title: '用户列表', component: SearchResultPage },

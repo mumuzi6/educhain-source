@@ -11,15 +11,18 @@ import com.kryos.educhain.model.domain.Team;
 import com.kryos.educhain.model.domain.User;
 import com.kryos.educhain.model.domain.UserTeam;
 import com.kryos.educhain.model.dto.TeamQuery;
+import com.kryos.educhain.model.enums.TeamStatusEnum;
 import com.kryos.educhain.model.request.TeamAddRequest;
 import com.kryos.educhain.model.request.TeamJoinRequest;
 import com.kryos.educhain.model.request.TeamQuitRequest;
 import com.kryos.educhain.model.request.TeamUpdateRequest;
 import com.kryos.educhain.model.vo.TeamUserVO;
+import com.kryos.educhain.model.vo.UserVO;
 import com.kryos.educhain.service.TeamService;
 import com.kryos.educhain.service.UserService;
 import com.kryos.educhain.service.UserTeamService;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.BeanUtils;
 import org.springframework.web.bind.annotation.*;
 
@@ -263,5 +266,106 @@ public class TeamController {
         }
         
         return ResultUtils.success(teamList);
+    }
+
+    /**
+     * 根据id获取队伍详情
+     *
+     * @param id
+     * @param request
+     * @return
+     */
+    @GetMapping("/{id}")
+    public BaseResponse<TeamUserVO> getTeamById(@PathVariable("id") long id, HttpServletRequest request) {
+        if (id <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        Team team = teamService.getById(id);
+        if (team == null) {
+            throw new BusinessException(ErrorCode.NULL_ERROR, "队伍不存在");
+        }
+        
+        // 判断是否为私有队伍，如果是且用户不是创建者，则需要验证邀请码
+        User loginUser = userService.getLoginUser(request);
+        if (TeamStatusEnum.PRIVATE.equals(TeamStatusEnum.getEnumByValue(team.getStatus()))
+                && !team.getUserId().equals(loginUser.getId())) {
+            // 验证邀请码，如果有效则允许查看
+            String inviteCode = request.getParameter("inviteCode");
+            log.info("收到邀请码请求: teamId={}, inviteCode={}", id, inviteCode);
+            if (StringUtils.isBlank(inviteCode) || !teamService.isValidInviteCode(inviteCode, id)) {
+                throw new BusinessException(ErrorCode.NO_AUTH, "无权限查看私有队伍");
+            }
+        }
+        
+        // 转换为TeamUserVO
+        TeamUserVO teamUserVO = new TeamUserVO();
+        BeanUtils.copyProperties(team, teamUserVO);
+        
+        // 设置创建人信息
+        User createUser = userService.getById(team.getUserId());
+        if (createUser != null) {
+            UserVO userVO = new UserVO();
+            BeanUtils.copyProperties(createUser, userVO);
+            teamUserVO.setCreateUser(userVO);
+        }
+        
+        // 设置已加入人数
+        QueryWrapper<UserTeam> queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("teamId", id);
+        long hasJoinNum = userTeamService.count(queryWrapper);
+        teamUserVO.setHasJoinNum((int) hasJoinNum);
+        
+        // 判断当前用户是否已加入该队伍
+        queryWrapper = new QueryWrapper<>();
+        queryWrapper.eq("userId", loginUser.getId());
+        queryWrapper.eq("teamId", id);
+        long hasUserJoin = userTeamService.count(queryWrapper);
+        teamUserVO.setHasJoin(hasUserJoin > 0);
+        
+        return ResultUtils.success(teamUserVO);
+    }
+
+    /**
+     * 获取队伍邀请码
+     *
+     * @param teamId
+     * @param request
+     * @return
+     */
+    @GetMapping("/invite-code/{teamId}")
+    public BaseResponse<String> generateInviteCode(@PathVariable("teamId") long teamId, HttpServletRequest request) {
+        if (teamId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        User loginUser = userService.getLoginUser(request);
+        
+        // 校验当前用户是否是队伍的创建者
+        Team team = teamService.getById(teamId);
+        if (team == null) {
+            throw new BusinessException(ErrorCode.NULL_ERROR, "队伍不存在");
+        }
+        if (!team.getUserId().equals(loginUser.getId())) {
+            throw new BusinessException(ErrorCode.NO_AUTH, "仅队伍创建者可获取邀请码");
+        }
+        
+        // 生成邀请码
+        String inviteCode = teamService.generateInviteCode(teamId);
+        return ResultUtils.success(inviteCode);
+    }
+
+    /**
+     * 测试邀请码是否有效
+     *
+     * @param teamId
+     * @param inviteCode
+     * @return
+     */
+    @GetMapping("/check-invite-code")
+    public BaseResponse<Boolean> checkInviteCode(@RequestParam("teamId") long teamId, @RequestParam("inviteCode") String inviteCode) {
+        if (teamId <= 0 || StringUtils.isBlank(inviteCode)) {
+            return ResultUtils.success(false);
+        }
+        boolean isValid = teamService.isValidInviteCode(inviteCode, teamId);
+        return ResultUtils.success(isValid);
     }
 }

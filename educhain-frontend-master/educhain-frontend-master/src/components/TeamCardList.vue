@@ -41,6 +41,8 @@
         <van-button v-if="team.userId === currentUser?.id" size="small" type="danger" plain
                     @click="doDeleteTeam(team.id)">解散队伍
         </van-button>
+        <!-- 添加邀请功能按钮 -->
+        <team-invite v-if="team.userId === currentUser?.id && team.status === 1" :team="team" />
       </template>
     </van-card>
     <van-dialog v-model:show="showPasswordDialog" title="请输入密码" show-cancel-button @confirm="doJoinTeam" @cancel="doJoinCancel">
@@ -60,6 +62,7 @@ import {onMounted, ref} from "vue";
 import {getCurrentUser} from "../services/user";
 import {useRouter} from "vue-router";
 import {formatDate} from "../utils/timeUtils";
+import TeamInvite from "./TeamInvite.vue";
 
 interface TeamCardListProps {
   teamList: TeamType[];
