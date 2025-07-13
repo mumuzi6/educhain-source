@@ -53,7 +53,7 @@ public class PreCacheJob {
     private static final List<Integer> PRELOAD_PAGE_NUMS = Arrays.asList(1, 2); // 预热第1页和第2页
 
     // 每天执行，预热推荐用户
-    @Scheduled(cron = "0 0 2 * * *") // 秒 分 时 日 月 年
+    @Scheduled(cron = "0 0 3 * * *") // 秒 分 时 日 月 年
     public void doCacheRecommendUser() {
         RLock lock = redissonClient.getLock("educhain:precachejob:docache:lock");
         try {
