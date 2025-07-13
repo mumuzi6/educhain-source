@@ -10,7 +10,7 @@
 
 ## 📖 项目简介
 
-学链智联系统是一个基于Spring Boot + Vue 3构建的高性能伙伴匹配平台。系统提供用户管理、智能标签匹配、组队协作、实时聊天等核心功能，帮助用户找到志同道合的学习伙伴和团队成员。
+学链智联系统是一个基于 Spring Boot + Vue 3 构建的高性能伙伴匹配平台。系统提供用户管理、智能标签匹配、组队协作、实时聊天等核心功能，帮助用户找到志同道合的学习伙伴和团队成员。
 
 ### 🎯 核心功能
 
@@ -61,26 +61,43 @@
 
 [**首页 - 用户推荐**](https://github.com/mumuzi6/educhain-source/blob/main/image/首页心动模式.png)
 
+![](https://github.com/mumuzi6/educhain-source/blob/main/image/首页心动模式.png)
+
 ---
 
 [**搜索功能 - 标签筛选**](https://github.com/mumuzi6/educhain-source/blob/main/image/标签搜索.png)
 
+![](https://github.com/mumuzi6/educhain-source/blob/main/image/标签搜索.png)
+
 ---
 
 [**队伍管理 - 创建**](https://github.com/mumuzi6/educhain-source/blob/main/image/创建队伍.png)
+
+![](https://github.com/mumuzi6/educhain-source/blob/main/image/创建队伍.png)
+
 [**队伍管理 - 加入**](https://github.com/mumuzi6/educhain-source/blob/main/image/找队伍.png)
+
+![](https://github.com/mumuzi6/educhain-source/blob/main/image/找队伍.png)
 
 ---
 
 [**实时聊天列表**](https://github.com/mumuzi6/educhain-source/blob/main/image/消息通信.png)
 
+![](https://github.com/mumuzi6/educhain-source/blob/main/image/消息通信.png)
+
 [**个人消息通信**](https://github.com/mumuzi6/educhain-source/blob/main/image/个人私信.png)
+
+![](https://github.com/mumuzi6/educhain-source/blob/main/image/个人私信.png)
 
 ---
 
 [**个人中心**](https://github.com/mumuzi6/educhain-source/blob/main/image/用户中心.png)
 
+![](https://github.com/mumuzi6/educhain-source/blob/main/image/用户中心.png)
+
 [**更新信息**](https://github.com/mumuzi6/educhain-source/blob/main/image/更新信息.png)
+
+![](https://github.com/mumuzi6/educhain-source/blob/main/image/更新信息.png)
 
 ---
 
