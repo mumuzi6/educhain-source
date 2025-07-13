@@ -59,43 +59,43 @@
 
 ### 主要功能截图
 
-[**首页 - 用户推荐**](https://github.com/mumuzi6/educhain-source/blob/main/image/首页心动模式.png)
+**首页 - 用户推荐**
 
 ![](https://github.com/mumuzi6/educhain-source/blob/main/image/首页心动模式.png)
 
 ---
 
-[**搜索功能 - 标签筛选**](https://github.com/mumuzi6/educhain-source/blob/main/image/标签搜索.png)
+**搜索功能 - 标签筛选**
 
 ![](https://github.com/mumuzi6/educhain-source/blob/main/image/标签搜索.png)
 
 ---
 
-[**队伍管理 - 创建**](https://github.com/mumuzi6/educhain-source/blob/main/image/创建队伍.png)
+**队伍管理 - 创建**
 
 ![](https://github.com/mumuzi6/educhain-source/blob/main/image/创建队伍.png)
 
-[**队伍管理 - 加入**](https://github.com/mumuzi6/educhain-source/blob/main/image/找队伍.png)
+**队伍管理 - 加入**
 
 ![](https://github.com/mumuzi6/educhain-source/blob/main/image/找队伍.png)
 
 ---
 
-[**实时聊天列表**](https://github.com/mumuzi6/educhain-source/blob/main/image/消息通信.png)
+**实时聊天列表**
 
 ![](https://github.com/mumuzi6/educhain-source/blob/main/image/消息通信.png)
 
-[**个人消息通信**](https://github.com/mumuzi6/educhain-source/blob/main/image/个人私信.png)
+**个人消息通信**
 
 ![](https://github.com/mumuzi6/educhain-source/blob/main/image/个人私信.png)
 
 ---
 
-[**个人中心**](https://github.com/mumuzi6/educhain-source/blob/main/image/用户中心.png)
+**个人中心**
 
 ![](https://github.com/mumuzi6/educhain-source/blob/main/image/用户中心.png)
 
-[**更新信息**](https://github.com/mumuzi6/educhain-source/blob/main/image/更新信息.png)
+**更新信息**
 
 ![](https://github.com/mumuzi6/educhain-source/blob/main/image/更新信息.png)
 
